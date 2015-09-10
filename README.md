@@ -1,4 +1,4 @@
-Example to consume and filter and evaluate twitter tweets.
+Example to consume, filter and evaluate twitter tweets.
 
 Twitter access
 --------------

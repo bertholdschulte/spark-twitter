@@ -18,8 +18,18 @@ public class TwitterApp {
 
 	private static final String SEARCH_TERM = "nice";
 	private static final String HOME_PATH = "/home/berthold/";
+	private static PolarityBasic polarityBasic;
 
 	public static void main(String[] args) {
+
+		polarityBasic = new PolarityBasic("/home/berthold/workspace/spark-twitter/");
+		try {
+			polarityBasic.train();
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+
 		loadOAuthAccess();
 
 		JavaStreamingContext ssc = new JavaStreamingContext("local[2]", "Twitter-Test", new Duration(1000));
@@ -34,7 +44,18 @@ public class TwitterApp {
 		JavaDStream<String> statuses = stream.filter(new Function<Status, Boolean>() {
 
 			public Boolean call(Status status) throws Exception {
-
+				if(status.getPlace() != null){
+					System.out.println("***Place***" + status.getPlace().getCountryCode());
+				}
+				if(status.getPlace() != null && "US".equalsIgnoreCase(status.getPlace().getCountryCode())){
+					System.out.println(status.getText());
+					System.out.println(polarityBasic.mClassifier.classify(status.getText()).bestCategory());
+					System.out.println("***********************");
+						
+				}
+				//System.out.println(status.getText());
+				//System.out.println(polarityBasic.mClassifier.classify(status.getText()).bestCategory());
+				//System.out.println("***********************");
 				if (status.getText().contains(SEARCH_TERM)) {
 					return true;
 				} else {

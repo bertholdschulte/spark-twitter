@@ -11,56 +11,57 @@ import org.apache.spark.streaming.api.java.JavaReceiverInputDStream;
 import org.apache.spark.streaming.api.java.JavaStreamingContext;
 import org.apache.spark.streaming.twitter.TwitterUtils;
 
-import twitter4j.HashtagEntity;
 import twitter4j.Status;
 
 public class TwitterApp {
 
-	private static final String SEARCH_TERM = "nice";
 	private static final String HOME_PATH = "/home/berthold/";
-	private static PolarityBasic polarityBasic;
 
 	public static void main(String[] args) {
 
-		polarityBasic = new PolarityBasic("/home/berthold/workspace/spark-twitter/");
+		loadOAuthAccess();
+		JavaStreamingContext ssc = new JavaStreamingContext("local[*]", "Twitter-Test", new Duration(60000));
+
+		JavaReceiverInputDStream<Status> stream = TwitterUtils.createStream(ssc);
+
 		try {
-			polarityBasic.train();
+			streamCreatePositiveCaseFiles(ssc, stream);
 		} catch (IOException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 
-		loadOAuthAccess();
-
-		JavaStreamingContext ssc = new JavaStreamingContext("local[2]", "Twitter-Test", new Duration(1000));
-
-		JavaReceiverInputDStream<Status> stream = TwitterUtils.createStream(ssc);
-
-		streamContainingSearchTerm(ssc, stream);
-
 	}
 
-	private static void streamContainingSearchTerm(JavaStreamingContext ssc, JavaReceiverInputDStream<Status> stream) {
+	private static void streamCreatePositiveCaseFiles(final JavaStreamingContext ssc, JavaDStream<Status> stream)
+			throws IOException {
+
 		JavaDStream<String> statuses = stream.filter(new Function<Status, Boolean>() {
+			private int count;
 
 			public Boolean call(Status status) throws Exception {
-				if(status.getPlace() != null){
+				if (status.getPlace() != null) {
 					System.out.println("***Place***" + status.getPlace().getCountryCode());
 				}
-				if(status.getPlace() != null && "US".equalsIgnoreCase(status.getPlace().getCountryCode())){
-					System.out.println(status.getText());
-					System.out.println(polarityBasic.mClassifier.classify(status.getText()).bestCategory());
+				String text = status.getText();
+				//TODO: collect all positive smiles and check them with UTF codes
+				if (status.getPlace() != null && isEnglish(status)
+						&& (text.contains(":-)") || text.contains("☺") || text.contains("😍") || text.contains("😅"))) {
+					System.out.println(text);
 					System.out.println("***********************");
-						
-				}
-				//System.out.println(status.getText());
-				//System.out.println(polarityBasic.mClassifier.classify(status.getText()).bestCategory());
-				//System.out.println("***********************");
-				if (status.getText().contains(SEARCH_TERM)) {
+					String message = text.replaceAll(":-\\)", "").replaceAll("☺", "").replaceAll("😍", "")
+							.replaceAll("😅", "");
+					System.out.println(message);
 					return true;
 				} else {
 					return false;
 				}
+
+			}
+
+			private boolean isEnglish(Status status) {
+				return "US".equalsIgnoreCase(status.getPlace().getCountryCode())
+						|| "GB".equalsIgnoreCase(status.getPlace().getCountryCode());
 			}
 		}).map(new Function<Status, String>() {
 			public String call(Status status) {
@@ -68,10 +69,12 @@ public class TwitterApp {
 				return status.getText();
 			}
 		});
-		statuses.window(new Duration(10000), new Duration(1000)).print();
+
+		statuses.dstream().repartition(1).saveAsTextFiles("/home/berthold/training/pos/train_", "dat");
 		ssc.checkpoint(HOME_PATH + "/twitter");
 		ssc.start();
 		System.out.println("Twitter stream started");
+
 	}
 
 	private static void loadOAuthAccess() {

@@ -2,7 +2,10 @@ package org.example;
 
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Properties;
+import java.util.regex.Pattern;
 
 import org.apache.spark.api.java.function.Function;
 import org.apache.spark.streaming.Duration;
@@ -17,15 +20,23 @@ public class TwitterApp {
 
 	private static final String HOME_PATH = "/home/berthold/";
 
+	private static List<String> positive = new ArrayList<String>();
+	private static List<String> negative = new ArrayList<String>();
+	private static int records;
+	
+	private static JavaStreamingContext ssc;
+	
 	public static void main(String[] args) {
-
 		loadOAuthAccess();
-		JavaStreamingContext ssc = new JavaStreamingContext("local[*]", "Twitter-Test", new Duration(60000));
+		loadEmoticons();
+		
+		ssc = new JavaStreamingContext("local[*]", "Twitter-Test", new Duration(60000));
 
 		JavaReceiverInputDStream<Status> stream = TwitterUtils.createStream(ssc);
 
 		try {
-			streamCreatePositiveCaseFiles(ssc, stream);
+			//streamCreateCaseFiles(ssc, stream, positive,"pos");
+			streamCreateCaseFiles(ssc, stream, negative,"neg");
 		} catch (IOException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
@@ -33,25 +44,29 @@ public class TwitterApp {
 
 	}
 
-	private static void streamCreatePositiveCaseFiles(final JavaStreamingContext ssc, JavaDStream<Status> stream)
+	private static void loadEmoticons() {
+		positive.add(":-)");
+		positive.add("☺");
+		positive.add("😍");
+		positive.add("😅");
+		negative.add(":-(");
+		negative.add("☹");
+	}
+
+	private static void streamCreateCaseFiles(final JavaStreamingContext ssc, JavaDStream<Status> stream, List<String> items, String path)
 			throws IOException {
 
 		JavaDStream<String> statuses = stream.filter(new Function<Status, Boolean>() {
-			private int count;
+		
 
 			public Boolean call(Status status) throws Exception {
-				if (status.getPlace() != null) {
-					System.out.println("***Place***" + status.getPlace().getCountryCode());
-				}
+
 				String text = status.getText();
-				//TODO: collect all positive smiles and check them with UTF codes
-				if (status.getPlace() != null && isEnglish(status)
-						&& (text.contains(":-)") || text.contains("☺") || text.contains("😍") || text.contains("😅"))) {
-					System.out.println(text);
-					System.out.println("***********************");
-					String message = text.replaceAll(":-\\)", "").replaceAll("☺", "").replaceAll("😍", "")
-							.replaceAll("😅", "");
-					System.out.println(message);
+				if (items.stream().anyMatch(s->text.contains(s))) {
+					records++;
+					if (records == 100) {
+						System.exit(0);
+					}
 					return true;
 				} else {
 					return false;
@@ -59,18 +74,13 @@ public class TwitterApp {
 
 			}
 
-			private boolean isEnglish(Status status) {
-				return "US".equalsIgnoreCase(status.getPlace().getCountryCode())
-						|| "GB".equalsIgnoreCase(status.getPlace().getCountryCode());
-			}
 		}).map(new Function<Status, String>() {
 			public String call(Status status) {
-
-				return status.getText();
+				return status.getText(); 
 			}
 		});
 
-		statuses.dstream().repartition(1).saveAsTextFiles("/home/berthold/training/pos/train_", "dat");
+		statuses.dstream().repartition(1).saveAsTextFiles("/home/berthold/training/"+path+"/train_", "dat");
 		ssc.checkpoint(HOME_PATH + "/twitter");
 		ssc.start();
 		System.out.println("Twitter stream started");
